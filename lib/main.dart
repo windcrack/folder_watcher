@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:system_tray/system_tray.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:flutter/services.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -526,10 +527,73 @@ class LogsScreen extends StatelessWidget {
 
   const LogsScreen({super.key, required this.watcher});
 
+  Future<void> _copyToClipboard(List<String> text, BuildContext context) async {
+    try {
+      // Объединяем все элементы списка в одну строку
+      final combinedText = text.join('\n');
+      
+      // Добавляем маркеры для каждого элемента
+      final textWithBullets = text.map((item) => '• $item').join('\n');
+      
+      await Clipboard.setData(ClipboardData(text: textWithBullets));
+
+      // Показываем уведомление о успешном копировании
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Скопировано в буфер обмена'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Ошибка копирования: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Логи')),
+      appBar: AppBar(
+        title: const Text('Логи'),
+        actions: [
+          // Кнопка для копирования всех логов
+          FutureBuilder<List<LogEntry>>(
+            future: watcher.getLogEntries(),
+            builder: (context, snapshot) {
+              if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+                return IconButton(
+                  icon: const Icon(Icons.copy_all),
+                  onPressed: () {
+                    final allActivities = snapshot.data!
+                        .expand((log) => log.activities)
+                        .toList();
+                    _copyToClipboard(allActivities, context);
+                  },
+                  tooltip: 'Копировать все логи',
+                );
+              }
+              return const SizedBox();
+            },
+          ),
+        ],
+      ),
       body: FutureBuilder<List<LogEntry>>(
         future: watcher.getLogEntries(),
         builder: (context, snapshot) {
@@ -566,18 +630,36 @@ class LogsScreen extends StatelessWidget {
                             ),
                           ),
                           const Spacer(),
+                          // Кнопка копирования для конкретного лога
+                          IconButton(
+                            icon: const Icon(Icons.copy, size: 20),
+                            onPressed: () => _copyToClipboard(log.activities, context),
+                            tooltip: 'Копировать логи за эту дату',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                          const SizedBox(width: 8),
                           Chip(
-                            label: Text('${log.activities.length} проектов'),
-                            backgroundColor: Colors.blue[100],
+                            label: Text(
+                              '${log.activities.length} проектов',
+                              style: const TextStyle(color: Colors.black),
+                            ),
+                            backgroundColor: Colors.white,
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
-                      ...log.activities.map(
-                        (activity) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Text('• $activity'),
-                        ),
+                      // Оставляем текст без InkWell, используем только IconButton для копирования
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ...log.activities.map(
+                            (activity) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Text('• $activity'),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -677,28 +759,6 @@ class PhpStormWatcher {
 
     await configFile.writeAsString(jsonEncode(config), encoding: utf8);
   }
-
-  // Future<bool> chooseWatchPath() async {
-  //   try {
-  //     final selectedPath = await FilePicker.platform.getDirectoryPath(
-  //       dialogTitle: 'Выберите папку с проектами PhpStorm',
-  //     );
-
-  //     if (selectedPath != null && selectedPath.isNotEmpty) {
-  //       watchPath = selectedPath;
-  //       await _saveConfig();
-  //       initTracker();
-  //       start();
-
-  //       if (onUpdate != null) onUpdate!();
-  //       return true;
-  //     }
-  //   } catch (e) {
-  //     print("Ошибка выбора папки: $e");
-  //   }
-
-  //   return false;
-  // }
 
   Future<bool> chooseWatchPath() async {
     try {
@@ -952,3 +1012,4 @@ class PhpStormWatcher {
     if (onUpdate != null) onUpdate!();
   }
 }
+
