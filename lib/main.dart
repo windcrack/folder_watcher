@@ -697,7 +697,8 @@ class LogEntry {
 class PhpStormWatcher {
   static const String appName = "PhpStormWatcher";
   static const String configFileName = "config.json";
-
+  
+  String? _securityBookmark;
   String watchPath = '';
   final Set<String> seenFolders = {};
   final Map<String, double> atimeTracker = {};
@@ -734,7 +735,17 @@ class PhpStormWatcher {
     }
   }
 
+  void checkFilePermissions(String filePath) {
+    final file = File(filePath);
+    if (file.existsSync()) {
+      print('File exists.');
+    } else {
+      print('File does not exist. Verify the path.');
+    }
+  }
+
   Future<void> _loadConfig() async {
+    print(configFile);
     if (await configFile.exists()) {
       try {
         final content = await configFile.readAsString();
@@ -743,6 +754,7 @@ class PhpStormWatcher {
         autoStart = config['auto_start'] ?? false;
         showNotifications = config['show_notifications'] ?? true;
         scanInterval = config['scan_interval'] ?? 3;
+        checkFilePermissions(watchPath);
       } catch (e) {
         print("Ошибка чтения конфига: $e");
       }
