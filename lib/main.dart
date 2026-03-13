@@ -338,7 +338,7 @@ class _MainScreenState extends State<MainScreen> with WindowListener {
       ),
     );
   }
-
+  
   void _toggleMonitoring() {
     setState(() {
       _isMonitoring = !_isMonitoring;
@@ -527,17 +527,12 @@ class LogsScreen extends StatelessWidget {
 
   const LogsScreen({super.key, required this.watcher});
 
-  Future<void> _copyToClipboard(List<String> text, BuildContext context) async {
+  Future<void> _copyToClipboard(LogEntry logEntry, BuildContext context) async {
     try {
-      // Объединяем все элементы списка в одну строку
-      final combinedText = text.join('\n');
-      
-      // Добавляем маркеры для каждого элемента
-      final textWithBullets = text.map((item) => '• $item').join('\n');
-      
-      await Clipboard.setData(ClipboardData(text: textWithBullets));
+      final text = logEntry.getFullLogText();
 
-      // Показываем уведомление о успешном копировании
+      await Clipboard.setData(ClipboardData(text: text));
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Row(
@@ -550,126 +545,184 @@ class LogsScreen extends StatelessWidget {
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
         ),
       );
     } catch (e) {
       debugPrint('Ошибка копирования: $e');
       ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _copyAllToClipboard(BuildContext context) async {
+    try {
+      final logs = watcher.getGroupedLogs();
+      if (logs.isEmpty) return;
+
+      final buffer = StringBuffer();
+
+      for (var log in logs) {
+        buffer.writeln(log.getFullLogText());
+        buffer.writeln(); // Пустая строка между днями
+      }
+
+      await Clipboard.setData(ClipboardData(text: buffer.toString()));
+
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Ошибка: $e'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 2),
+          content: const Row(
+            children: [
+              Icon(Icons.check, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Все логи скопированы'),
+            ],
+          ),
+          backgroundColor: Colors.green,
         ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка: $e'), backgroundColor: Colors.red),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final logs = watcher.getGroupedLogs();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Логи'),
         actions: [
-          // Кнопка для копирования всех логов
-          FutureBuilder<List<LogEntry>>(
-            future: watcher.getLogEntries(),
-            builder: (context, snapshot) {
-              if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-                return IconButton(
-                  icon: const Icon(Icons.copy_all),
-                  onPressed: () {
-                    final allActivities = snapshot.data!
-                        .expand((log) => log.activities)
-                        .toList();
-                    _copyToClipboard(allActivities, context);
-                  },
-                  tooltip: 'Копировать все логи',
-                );
-              }
-              return const SizedBox();
-            },
-          ),
+          if (logs.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.copy_all),
+              onPressed: () => _copyAllToClipboard(context),
+              tooltip: 'Копировать все логи',
+            ),
         ],
       ),
-      body: FutureBuilder<List<LogEntry>>(
-        future: watcher.getLogEntries(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.hasError ||
-              !snapshot.hasData ||
-              snapshot.data!.isEmpty) {
-            return const Center(child: Text('Логи не найдены'));
-          }
-
-          final logs = snapshot.data!;
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: logs.length,
-            itemBuilder: (context, index) {
-              final log = logs[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            log.date,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
+      body: logs.isEmpty
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.history, size: 64, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text('Логи не найдены', style: TextStyle(color: Colors.grey)),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: logs.length,
+              itemBuilder: (context, index) {
+                final log = logs[index];
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    log.date,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: log.weekday == 5
+                                          ? Colors.purple.withOpacity(0.1)
+                                          : Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      log.getPrefix(),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: log.weekday == 5
+                                            ? Colors.purple
+                                            : Colors.blue,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.copy, size: 20),
+                              onPressed: () => _copyToClipboard(log, context),
+                              tooltip: 'Копировать логи за эту дату',
+                            ),
+                            const SizedBox(width: 4),
+                            Chip(
+                              label: Text(
+                                '${log.activities.length} ${_getProjectWord(log.activities.length)}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              backgroundColor: Colors.grey[200],
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        ...log.activities.map(
+                          (activity) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '• ',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    activity,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const Spacer(),
-                          // Кнопка копирования для конкретного лога
-                          IconButton(
-                            icon: const Icon(Icons.copy, size: 20),
-                            onPressed: () => _copyToClipboard(log.activities, context),
-                            tooltip: 'Копировать логи за эту дату',
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          ),
-                          const SizedBox(width: 8),
-                          Chip(
-                            label: Text(
-                              '${log.activities.length} проектов',
-                              style: const TextStyle(color: Colors.black),
-                            ),
-                            backgroundColor: Colors.white,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      // Оставляем текст без InkWell, используем только IconButton для копирования
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ...log.activities.map(
-                            (activity) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 2),
-                              child: Text('• $activity'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+                );
+              },
+            ),
     );
+  }
+
+  String _getProjectWord(int count) {
+    if (count % 10 == 1 && count % 100 != 11) {
+      return 'проект';
+    } else if ([2, 3, 4].contains(count % 10) &&
+        ![12, 13, 14].contains(count % 100)) {
+      return 'проекта';
+    } else {
+      return 'проектов';
+    }
   }
 }
 
@@ -689,15 +742,33 @@ class ProjectActivity {
 class LogEntry {
   final String date;
   final List<String> activities;
+  final int weekday; // Добавляем день недели
 
-  LogEntry({required this.date, required this.activities});
+  LogEntry({
+    required this.date,
+    required this.activities,
+    required this.weekday,
+  });
+
+  // Метод для получения префикса на основе дня недели
+  String getPrefix() {
+    // По вашему коду: для пятницы (5) используем "Делал в пятницу", для остальных "Делал вчера"
+    return weekday == 5 ? "Делал в пятницу:" : "Делал вчера:";
+  }
+
+  // Метод для получения полного текста лога для копирования
+  String getFullLogText() {
+    final prefix = getPrefix();
+    final activitiesText = activities.map((a) => "— $a").join('\n');
+    return "$prefix\n$activitiesText";
+  }
 }
 
 // Основной класс мониторинга
 class PhpStormWatcher {
   static const String appName = "PhpStormWatcher";
   static const String configFileName = "config.json";
-  
+
   String? _securityBookmark;
   String watchPath = '';
   final Set<String> seenFolders = {};
@@ -919,9 +990,6 @@ class PhpStormWatcher {
       recentActivities.removeLast();
     }
 
-    // Записываем в лог
-    await _writeToLog(projectName, now);
-
     // Показываем уведомление
     if (showNotifications) {
       final notification = LocalNotification(
@@ -932,33 +1000,7 @@ class PhpStormWatcher {
     }
 
     if (onUpdate != null) onUpdate!();
-  }
-
-  Future<void> _writeToLog(String projectName, DateTime timestamp) async {
-    final today =
-        "${timestamp.year}-${timestamp.month.toString().padLeft(2, '0')}-${timestamp.day.toString().padLeft(2, '0')}";
-    final logDir = Directory(p.join(Directory.current.path, "logs"));
-    if (!logDir.existsSync()) {
-      logDir.createSync(recursive: true);
-    }
-
-    final logFile = File(p.join(logDir.path, "${today}_log.txt"));
-    final prefix = timestamp.weekday == 5
-        ? "Делал в пятницу\n"
-        : "Делал вчера\n";
-
-    if (!await logFile.exists()) {
-      await logFile.writeAsString(prefix, encoding: utf8);
-    }
-
-    final content = await logFile.readAsString(encoding: utf8);
-    if (!content.contains(projectName)) {
-      await logFile.writeAsString(
-        "— $projectName\n",
-        mode: FileMode.append,
-        encoding: utf8,
-      );
-    }
+    print('[LOG] Проект открыт: $projectName');
   }
 
   // Геттеры для статистики
@@ -978,42 +1020,49 @@ class PhpStormWatcher {
 
   int get trackedProjects => atimeTracker.length;
 
-  Future<List<LogEntry>> getLogEntries() async {
-    final logDir = Directory(p.join(Directory.current.path, "logs"));
-    if (!logDir.existsSync()) return [];
+  // Новый метод для получения сгруппированных по дням логов
+  List<LogEntry> getGroupedLogs() {
+    if (recentActivities.isEmpty) return [];
 
-    final logFiles = logDir
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('_log.txt'))
-        .toList();
+    // Группируем активности по дате
+    final Map<String, List<ProjectActivity>> grouped = {};
 
-    logFiles.sort((a, b) => b.path.compareTo(a.path));
+    for (var activity in recentActivities) {
+      final dateKey =
+          "${activity.timestamp.year}-${activity.timestamp.month.toString().padLeft(2, '0')}-${activity.timestamp.day.toString().padLeft(2, '0')}";
 
-    final List<LogEntry> entries = [];
-
-    for (final file in logFiles.take(30)) {
-      try {
-        final content = await file.readAsString(encoding: utf8);
-        final lines = content
-            .split('\n')
-            .where((line) => line.trim().isNotEmpty)
-            .toList();
-
-        if (lines.isNotEmpty) {
-          final date = p.basename(file.path).replaceAll('_log.txt', '');
-          final activities = lines
-              .where((line) => line.startsWith('— '))
-              .map((line) => line.substring(2))
-              .toList();
-
-          if (activities.isNotEmpty) {
-            entries.add(LogEntry(date: date, activities: activities));
-          }
-        }
-      } catch (e) {
-        print("Ошибка чтения лога: $e");
+      if (!grouped.containsKey(dateKey)) {
+        grouped[dateKey] = [];
       }
+      grouped[dateKey]!.add(activity);
+    }
+
+    // Преобразуем в список LogEntry
+    final List<LogEntry> entries = [];
+    final sortedKeys = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+
+    for (var dateKey in sortedKeys) {
+      final activities = grouped[dateKey]!;
+
+      // Сортируем активности по времени (от новых к старым)
+      activities.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+      // Форматируем записи с нужным префиксом
+      List<String> formattedActivities = [];
+
+      for (int i = 0; i < activities.length; i++) {
+        final activity = activities[i];
+        formattedActivities.add(activity.projectName);
+      }
+
+      entries.add(
+        LogEntry(
+          date: dateKey,
+          activities: formattedActivities,
+          // Сохраняем день недели для префикса
+          weekday: activities.first.timestamp.weekday,
+        ),
+      );
     }
 
     return entries;
